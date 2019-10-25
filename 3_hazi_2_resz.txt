@@ -1,0 +1,3 @@
+2. Ezek természetesen nem lesznek valódi hatások, hiszen nem egy rendes kísérlet eredményei. Írjátok le, hogy a valóságban ez a hatás kisebb-e, vagy nagyobb (és miért)? Tudom, hogy ez a kérdés nem egyszerű, az adatok alapos ismeretében lehet erre bármit mondani, próbáljátok meg!
+
+Ezeket az adatokat az OECD honlapjáról szedtük le, vagyis valós hatásokat vizsgálunk ezáltal. Eredményül azt kaptuk, hogy a nőknek a várható élettartama nagyobb. Ezt akár azzal is magyarázhatjuk, hogy például a nők kevesebbet dohányoznak (mialatt terhesek), vagy a nők általában előbb mennek nyugdíjba mint a férfiak. 

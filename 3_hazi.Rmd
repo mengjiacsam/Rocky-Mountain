@@ -1,0 +1,96 @@
+---
+title: "Homework3"
+author: "ChenMengJia, BalintParragi"
+date: '2019 10 25 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(plotly))
+```
+
+```{r}
+suicide <- fread("data/suiciderate.csv")
+cancer <- fread("data/deathscancer.csv")
+infant <- fread("data/infantmortality.csv")
+spending <- fread("data/healthspending.csv")
+lifeexp <- fread("data/lifeexp.csv")
+obese <- fread("data/obese.csv")
+smokers <- fread("data/smokers.csv")
+```
+
+```{r}
+relevant_countries <- c("HUN", "CZE", "SVK", "POL", "AUT", "SVN")
+suicide <- suicide[LOCATION %in% relevant_countries]
+cancer <- cancer[LOCATION %in% relevant_countries]
+lifeexp <- lifeexp[LOCATION %in% relevant_countries]
+smokers <- smokers[LOCATION %in% relevant_countries]
+```
+
+```{r}
+suicide_gender <- suicide[SUBJECT != "TOT"]
+cancer_gender <- cancer[SUBJECT != "TOT"]
+lifeexp_gender <- lifeexp[SUBJECT != "TOT" & TIME==2017]
+smokers_gender <- smokers[SUBJECT != "TOT"]
+```
+#### values értelmezés
+suicide: per 100.000 persons
+cancer: per 100.000 persons
+lifeexp: years
+smokers: % of population aged 15+
+
+egyéb (jelen házihoz nem kell)-
+infant mortality: deaths/1000 births
+obese: measured/self-reported, % of population aged 15+
+
+```{r}
+ggplot(lifeexp_gender, aes(TIME,Value, colour=SUBJECT))+geom_line()+facet_wrap(~LOCATION)
+```
+
+```{r}
+lifeexp_gender_dt<- lifeexp_gender[, .(Lifemean = sum(Value)/length(relevant_countries)), by=SUBJECT]
+
+
+lifeexp_gender_dt2 <-lifeexp_gender[, .(sqrt(sum((Value-sum(Value)/length(relevant_countries))^2)/length(relevant_countries))), SUBJECT=="MEN"]
+
+
+if (lifeexp_gender_dt2$SUBJECT == TRUE) {
+    lifeexp_gender_dt2$SUBJECT[1] <- "MEN"
+} else {
+    lifeexp_gender_dt2$SUBJECT[2] <-"WOMEN"
+}
+
+if (lifeexp_gender_dt2$SUBJECT == FALSE) {
+    lifeexp_gender_dt2$SUBJECT[1] <- "WOMEN"
+} else {
+    lifeexp_gender_dt2$SUBJECT[2] <-"WOMEN"
+}
+```
+
+```{r}
+lifeexp_final <-merge(lifeexp_gender_dt, lifeexp_gender_dt2)
+```
+
+#### megjegyzés: mivel az adat nem olyan, mint egy valószínűség (click_rate), így sokkal nehezebbnek bizonyult a szórás és így a bizonytalanság kiszámítása. 1,96 helyett 2,45tel számolunk (t eloszlás n=6 esetén 95% konf.)
+
+```{r}
+lifeexp_final %>%
+    .[, CI_lower := Lifemean - (2.45 * V1)] %>%
+    .[, CI_higher := Lifemean + (2.45 * V1)] %>%
+    ggplot(.,aes(x = SUBJECT, y = Lifemean)) +
+    geom_col() +
+    geom_errorbar(aes(ymin = CI_lower, ymax = CI_higher))+
+    labs(
+        title="Average life expectancy among genders", 
+        subtitle="Year:2017", 
+        x="Gender", caption="AUT,CZE,HUN,POL,
+         SVK,SVN") 
+```
+
