@@ -1,0 +1,38 @@
+---
+title: "Homework3"
+author: "ChenMengJia, BalintParragi"
+date: '2019 10 25 '
+output: html_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(plotly))
+```
+```{r}
+top_2017 <- fread("data/top2017.csv")
+top_2018 <- fread("data/top2018.csv")
+top_2017[, rank:=1:100]
+top_2018[, rank:=1:100]
+```
+```{r}
+top_2017[, c("id_2017", "time_signature_2017", "key", "mode_2017"):=NULL]
+top_2018[, c("id_2018", "time_signature_2018", "key_2018", "mode_2018"):=NULL]
+#Szerintem ez a két oszlop felesleges
+
+```
+```{r}
+first_top100_music_2007_8<-merge(top_2017, top_2018, by=c("rank"))
+
+summary(first_top100_music_2007_8)
+```
+```{r}
+ggplot(first_top100_music_2007_8, aes(danceability_2017, energy_2017 ))+ geom_point()
+ggplot(first_top100_music_2007_8, aes())
+```
