@@ -1,0 +1,98 @@
+---
+title: "Homework4"
+author: "ChenMengJia, BalintParragi"
+date: '2019 10 25 '
+output: html_document
+---
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(plotly))
+```
+
+#### A spotify 2017-18-as top 100-as listájának adatait elemezzük, mely a rangsorolt dalok számtalan zenei jellemzőjét rögzíti (ezek rövid leírása később). Azt szeretnénk megmagyarázni, hogy van-e összefüggés ezen jellemzők és a toplistán elfoglalt helyezés között. Ezen kívül egy másik alternatív módszerünk, hogy megpróbáljuk leírni, hogy milyen paraméterekkel rendelkező dal kerülhet a toplistára.
+
+```{r}
+top_2017 <- fread("data/top2017.csv", encoding = "UTF-8")
+top_2018 <- fread("data/top2018.csv", encoding = "UTF-8")
+top_2017[, rank:=1:100]
+top_2018[, rank:=1:100]
+```
+
+#### Egyes változókat kiszedtünk, mert teljesen irreleváns volt a szerepltetésük (és az értelmük)
+
+```{r}
+top_2017[, c("id", "time_signature", "key", "mode"):=NULL]
+top_2018[, c("id", "time_signature", "key", "mode"):=NULL]
+#danceability: tempo, rhythm, stability, beat strength
+#energy: intensity & activity & loudness
+#loudness: deciBels
+#spechiness: 0.33 és 0.66 között zene és szöveg <-> instrumentalness
+#valence: 0-szomorú 1-happy
+#tempo: BPM
+#duration_ms: milliseconds
+```
+
+```{r}
+top100_music <- merge(top_2017, top_2018, all = TRUE)
+
+```
+
+#### adattisztítás: néhány dal mindkét év toplistáján szerepelt, ezektől megtisztítottuk az adatokat
+
+```{r}
+top100_unique <- unique(top100_music, by = "name")
+```
+
+#### Néhány kezdeti ábra
+
+```{r}
+ggplot(top100_unique, aes(tempo, rank))+ geom_point()+geom_smooth()
+```
+
+```{r}
+ggplot(top100_unique, aes(valence, rank))+ geom_point()+geom_smooth()
+```
+
+```{r}
+ggplot(top100_unique, aes(loudness, energy))+ geom_point()+geom_smooth()
+```
+
+```{r}
+cor(top100_unique[, c("artists", "name"):=NULL])
+```
+
+#### Mint látható a korrelációs mátrixból és az ábrákból, a rank igazán semmivel sem korrelál, egyes más változók egymással viszont elég erősen.Ennek ellenére érdemesnek tartjuk továbbvinni ezt az elméletet és regressziót futtatni.
+
+```{r}
+lm1 <- lm(rank ~ ., data = top100_unique)
+residuals <- data.table(residuals = lm1$residuals, fitted = lm1$fitted.values)
+ggplot(residuals, aes(fitted, residuals)) +
+    geom_point(alpha = .3) +
+    theme_minimal()
+```
+
+#### A maradéktagokat mutató ábra alapján az elmondható, hogy azok randomok, így nem maradt ki szisztematikus hatás.
+
+```{r}
+summary(lm1)
+```
+
+#### Ellenben a p (és t) értékekből látszik, hogy a modellünk egyik magyarázó változója sem szignifikáns (ami a korrelációs mátrixból sejthető volt)
+
+```{r}
+lm2 <- lm(rank ~ tempo + liveness, data = top100_unique)
+summary(lm2)
+```
+
+#### Az új lineáris regresszióban benne hagytuk a teljes modellből (lm1) a két legkisebb p-értékű tagot, azonban ezek p-értéke és így szignifikanciája nem változott. A rank ezzel a két változóval korrelált leginkább kezdetben.
+
+#### Interakció hozzáadásának nem láttuk értelmét (nincs értelme ezen változók kombinálásának), viszont az egyértelmű, hogy a modellnek nincs magyarázóereje. Ezt a további feladatok során kétféle módon próbáljuk orvosolni. Az egyik, hogy nem a rank lesz a függő változó (és más modellt építünK), a másik pedig (mely inkább értelmes feladat), hogy leírni és jellemezni próbáljuk ezeket a zeneszámokat, hogy mégis miért kerülhettek be a top100-ba. Továbbá természetesen előfordulhat, hogy meglévő változókon kívül igazából teljesen más tényezők magyarázzák a toplistás helyezést (ízlés, előadó hírneve, divat, előadóval kapcsolatos hírek és történések stb.).
+
+#### További ötletünk, hogy a test és train adatokat a külön évek adataiból hozzuk létre, azaz az egyik év adatain traineljük a modellt (pl. 2017) és a másikon (pl. 2018) teszteljük azt.
