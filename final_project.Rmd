@@ -1,0 +1,141 @@
+---
+title: "Végső projekt"
+author: "ChenMengJia, BalintParragi"
+date: '2020 01 08 '
+output: html_document
+---
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(ggpubr))
+```
+
+A spotify 2017-18-as top 100-as listájának adatait elemezzük, mely a rangsorolt dalok számtalan zenei jellemzőjét rögzíti (ezek rövid leírása később). Azt szeretnénk megmagyarázni, hogy van-e összefüggés ezen jellemzők és a toplistán elfoglalt helyezés között. Ezen kívül egy másik alternatív módszerünk, hogy megpróbáljuk leírni, hogy milyen paraméterekkel rendelkező dal kerülhet a toplistára.
+
+```{r}
+top_2017 <- fread("data/top2017.csv", encoding = "UTF-8")
+top_2018 <- fread("data/top2018.csv", encoding = "UTF-8")
+top_2017[, rank:=(1:100)/100]
+top_2018[, rank:=(1:100)/100]
+```
+
+Egyes változókat kiszedtünk, mert teljesen irreleváns volt a szerepltetésük (és az értelmük)
+
+```{r}
+top_2017[, c("id", "time_signature", "key", "mode"):=NULL]
+top_2018[, c("id", "time_signature", "key", "mode"):=NULL]
+```
+
+#Változók
+
+danceability: easures how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. A value of 0.0 is least danceable and 1.0 is most danceable.
+
+energy: Energy is a measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity. Typically, energetic tracks feel fast, loud, and noisy
+
+loudness: The overall loudness of a track in decibels (dB). Loudness values are averaged across the entire track and are useful for comparing relative loudness of tracks. Loudness is the quality of a sound that is the primary psychological correlate of physical strength (amplitude). Values typical range between -60 and 0 db.
+
+spechiness: Detects the presence of spoken words in a track. Values above 0.66 describe tracks that are probably made entirely of spoken words. Values between 0.33 and 0.66 describe tracks that may contain both music and speech, either in sections or layered, including such cases as rap music. Values below 0.33 most likely represent an instrumental.
+
+acousticness: A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 1.0 represents high confidence the track is acoustic.
+
+liveness:  Detects the presence of an audience in the recording. Higher liveness values represent an increased probability that the track was performed live. A value above 0.8 provides strong likelihood that the track is live.
+
+instrumentalness: Predicts whether a track contains no vocals. “Ooh” and “aah” sounds are treated as instrumental in this context. Rap or spoken word tracks are clearly “vocal”. The closer the instrumentalness value is to 1.0, the greater likelihood the track contains no vocal content. Values above 0.5 are intended to represent instrumental tracks, but confidence is higher as the value approaches 1.0.
+
+valence: A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track. Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry)
+
+tempo: The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or pace of a given piece and derives directly from the average beat duration.
+
+duration_ms: milliseconds
+
+# Az évek összehasonlítása néhány változó szerint azt mutatja, hogy nem különböznek igazán ezek az évek zenei stílusban.
+
+```{r}
+
+acou1 <- ggplot(top_2017, aes(acousticness)) + geom_histogram() + labs(title = "2017")
+acou2 <- ggplot(top_2018, aes(acousticness)) + geom_histogram()+ labs(title = "2018")
+ggarrange(acou1, acou2)
+
+dance1 <-ggplot(top_2017, aes(danceability)) + geom_histogram() + labs(title = "2017")
+dance2 <-ggplot(top_2018, aes(danceability)) + geom_histogram()+ labs(title = "2018")
+
+ggarrange(dance1, dance2)
+
+ggarrange(ggplot(top_2017, aes(tempo)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(tempo)) + geom_histogram()+ labs(title = "2018"))
+```
+
+
+```{r}
+top100_music_dt <- data.table(rbind(top_2017, top_2018))
+```
+
+Adattisztítás: néhány dal mindkét év toplistáján szerepelt, ezektől megtisztítottuk az adatokat
+
+```{r}
+top100_unique <- unique(top100_music_dt, by = "name")
+```
+
+# Néhány kezdeti ábra
+
+```{r}
+ggplot(top100_unique, aes(tempo, rank))+ geom_point()+geom_smooth()
+ggplot(top100_unique, aes(valence))+ geom_histogram()
+summary(top100_unique)
+```
+
+
+# Próbálkoztunk függvényként végigfuttatni az egyes változók hisztogramjait, hogy igényesebb legyen, de sajnos nem jártunk sikerrel. :(
+(```{r}
+tip <- c("acousticness", "danceability")
+
+
+lapply(colnames(top100_unique) %in% tip, function(tip_fun) {
+  ggplot(top100_unique, aes(tip_fun)) + geom_histogram()
+})
+
+colnames(top100_unique) %in% tip
+```)
+
+```{r}
+ggplot(top100_unique, aes(danceability)) + geom_histogram()
+ggplot(top100_unique, aes(loudness))+ geom_histogram()
+ggplot(top100_unique, aes(speechiness))+ geom_histogram()
+ggplot(top100_unique, aes(valence))+ geom_histogram()
+ggplot(top100_unique, aes(liveness))+ geom_histogram()
+```
+
+```{r}
+top50 <- top100_unique[rank<= 0.50]
+top51_100 <- top100_unique[rank> 0.50]
+```
+
+```{r}
+top50_avg <- top50[, .(avg_dan = sum(danceability)/length(danceability))]
+top50_sd <- top50[, .(sd_dan = sqrt((sum(danceability-sum(danceability)/length(danceability))^2)/length(danceability)))]
+top50_final <- data.table(top50_avg, top50_sd, Category = "Top50")
+
+top51_avg <- top51_100[, .(avg_dan = sum(danceability)/length(danceability))]
+top51_sd <- top51_100[, .(sd_dan = sqrt((sum(danceability-sum(danceability)/length(danceability))^2)/length(danceability)))]
+top51_final <- data.table(top51_avg, top51_sd, Category = "Top51-100")
+
+top_dance <- rbind(top50_final, top51_final)
+```
+
+```{r}
+top_dance %>%
+    .[, CI_lower := avg_dan - (2 * sd_dan)] %>%
+    .[, CI_higher := avg_dan + (2 * sd_dan)] %>%
+    ggplot(.,aes(x = Category, y = avg_dan)) +
+    geom_col() +
+    geom_errorbar(aes(ymin = CI_lower, ymax = CI_higher), colour = "red")
+   
+```
+
+# A szórások nagyon kicsik, így a konfidenciaintervallum tulajdonképpen megegyezik az átlaggal. A két átlag szinte azonos, így a top50 első és második fele között nincs különbség a danceability tekintetében.
