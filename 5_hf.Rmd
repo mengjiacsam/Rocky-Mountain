@@ -1,0 +1,130 @@
+---
+title: "5hf"
+author: "BalintParragi&ChenMengJia"
+date: '2020 01 09 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(plotly))
+```
+
+```{r}
+top_2017 <- fread("data/top2017.csv", encoding = "UTF-8")
+top_2018 <- fread("data/top2018.csv", encoding = "UTF-8")
+top_2017[, rank:=(1:100)/100]
+top_2018[, rank:=(1:100)/100]
+```
+
+```{r}
+top_2017[, c("id", "time_signature", "key", "mode"):=NULL]
+top_2018[, c("id", "time_signature", "key", "mode"):=NULL]
+```
+
+```{r}
+top100_music_dt <- data.table(rbind(top_2017, top_2018))
+top100_unique <- unique(top100_music_dt, by = "name")
+```
+
+```{r}
+m <- length(top100_unique$acousticness)
+train_proportion <- 0.7
+train_index_sp <- sample(1:m, floor(m*train_proportion))
+
+data_train_sp <- top100_unique[train_index_sp,]
+data_test_sp <- top100_unique[-train_index_sp,]
+data_range_sp <- data.table(x = top100_unique$acousticness, y = top100_unique$rank)
+
+p_sp <- ggplot(data_train_sp, aes(acousticness, rank)) +
+    geom_point()  +
+    theme_minimal()
+
+p_sp
+```
+
+
+```{r, warning = FALSE, echo=FALSE}
+k <- c(0, 1, 5, 30)
+
+for (i in k) {
+    if (i == 0) {
+        model_sp <- lm(top100_unique$rank ~ 1, data = data_train_sp)
+    } else {
+        model_sp <- lm(top100_unique$rank ~ poly(top100_unique$acousticness, i, raw = TRUE), data = data_train_sp)
+    }
+    colname_sp <- paste0("k_",i)
+    data_range_sp <- data_range_sp[, eval(colname_sp):=predict(model_sp, newdata = data_range_sp)]
+}
+
+data_range_sp_long <- melt(data_range_sp, id.vars = c("x", "y"))
+
+
+p_sp +
+    geom_line(data = data_range_sp_long, aes(x, value)) +
+    facet_wrap(~variable)
+```
+
+```{r, warning = FALSE, echo=FALSE}
+
+p_sp +
+    geom_line(data = data_range_sp_long, aes(x, value)) +
+    geom_point(data = data_test_sp, aes(acousticness, rank), color = "red") +
+  annotate("text", x = 0.85, y = 0, label = "Test data", color="red") +
+    annotate("text", x = 0.85, y = 0.1, label = "Train data") +
+  facet_wrap(~variable)
+
+```
+
+A korrelációk és a többi házi feladatban elemzettek alapján a rank-et semennyire nem magyarázzák ezek a változók, így nem érdemes test és validation set-eket elkülöníteni
+
+Ugyanez a feladat két (lineárisan) korreláló (loudness, energy) változó között:
+```{r}
+m2 <- length(top100_unique$loudness)
+train_proportion2 <- 0.7
+train_index_sp2 <- sample(1:m2, floor(m2*train_proportion2))
+
+data_train_sp2 <- top100_unique[train_index_sp2,]
+data_test_sp2 <- top100_unique[-train_index_sp2,]
+data_range_sp2 <- data.table(x = top100_unique$loudness, y = top100_unique$energy)
+
+p_sp2 <- ggplot(data_train_sp2, aes(loudness, energy)) +
+    geom_point()  +
+    theme_minimal()
+
+p_sp2
+```
+```{r, warning = FALSE, echo=FALSE}
+
+for (i in k) {
+    if (i == 0) {
+        model_sp2 <- lm(top100_unique$energy ~ 1, data = data_train_sp2)
+    } else {
+        model_sp2 <- lm(top100_unique$energy ~ poly(top100_unique$loudness, i, raw = TRUE), data = data_train_sp2)
+    }
+    colname_sp2 <- paste0("k_",i)
+    data_range_sp2 <- data_range_sp2[, eval(colname_sp2):=predict(model_sp2, newdata = data_range_sp2)]
+}
+
+data_range_sp2_long <- melt(data_range_sp2, id.vars = c("x", "y"))
+
+
+p_sp2 +
+    geom_line(data = data_range_sp2_long, aes(x, value)) +
+    facet_wrap(~variable)
+```
+
+```{r, warning = FALSE, echo=FALSE}
+
+p_sp2 +
+    geom_line(data = data_range_sp2_long, aes(x, value)) +
+    geom_point(data = data_test_sp2, aes(loudness, energy), color = "red") +
+  annotate("text", x = -3, y = 0, label = "Test data", color="red") +
+    annotate("text", x = -3, y = 0.1, label = "Train data") +
+  facet_wrap(~variable)
+```
+
+A testadatok nagyon jól illeszkednek, hiszen a két változó szorosan korrelál egymással és mivel mindkét változó szórása elég kicsi az átlag körül (nagyon egyben van az összes adatpont), így ránézésre nem nagyon különböznek a polinomok.
