@@ -1,0 +1,261 @@
+---
+title: "Spotify top 100 zenei listák elemzése"
+author: "Chen Meng Jia"
+date: "Január 10, 2020"
+output:
+  html_document: default
+  pdf_document: default
+subtitle: Eltecon Data Science project
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(knitr)
+library(ggpubr)
+library(arm)
+```
+
+# Az elemzés alapjai
+
+## Adatok
+- A spotify 2017-18-as top 100-as listájának adatait elemezzük, mely a rangsorolt dalok számtalan zenei jellemzőjét rögzíti (ezek rövid leírása később). A toplistára került dalok a streaming (meghallgatások száma) alapján rangsorolódnak.
+- Az adatokat Kaggle-ről töltöttük le.
+
+## Változók
+- A függő, magyarázni kívánt változó a rank. Mindkét évben 1-től 100-ig terjed. Mi lenormáljuk 0.01 és 1 közé.
+
+- Danceability: 0-tól 1-ig terjedő skálán mutatja különböző elemek szerint (tempó, ritmusosság, basszus ütemezés), hogy mennyire táncolható egy dal (0 a legkevésbé, 1 a legjobban).
+
+- Energy: 0-tól 1-ig terjedő skálán mutatja a zene intenzitásának és aktivitásának mértékét. Az energikus dalok (0 a legkevésbé, 1 a legjobban) tipikusan gyorsak, hangosak.
+
+- Loudness: Az egész zeneszám során átlagolt hangerő, decibel-ben mérve (dB), melynek köszönhetően összehasonlítható a relatív hangereje a zeneszámoknak.
+
+- Spechiness: 0-tól 1-ig terjedő skálán méri a szavak és a beszéd jelenlétét egy zeneszámban. 0.66 felett várhatóan az egész dal szavakból, beszédből (spoken word) áll, 0.33 és 0.66 között beszédet és zenét is tartalmaz, 0.33 alatt pedig várhatóan csak instrumentális elemekből áll a dal.
+
+- Acousticness:  0-tól 1-ig terjedő konfidencia mérték, hogy egy szám akusztikus-e (0 a legkevésbé valószínű, 1 a leginkább valószínű, hogy akusztikus).
+
+- Liveness:  0-tól 1-ig terjedő skálán vizsgálja, hogy a dal felvételekor jelen volt-e élő közönség (0 a legkevésbé valószínű, 1 a leginkább valószínű, hogy közönség előtt vették fel a dalt).
+
+- Instrumentalness: 0-tól 1-ig terjedő skálán jelzi előre, hogy egy dalban nincsen-e vokál. 0-hoz közeli érték tisztán vokális, azaz tartalmaz szöveget (pl. rap). 1-hez közeli értékű zeneszám várhatóan semmilyen szöveget nem tartalmaz (így instrumentális).
+
+- Valence: 0-tól 1-ig terjedő skálán méri, hogy egy dal pozitív hangulatú-e (boldog, vidám, eufórikus hangzás) vagy inkább negatív (szomorú, mérges, csalódott). 0 a leginkább negatív, 1 a leginkább pozitív.
+
+- Tempo: Az átlagos basszus hosszúság és a basszusok gyorsasága alapján kiszámolt érték, BPM-ben (beats per minute) megadva.
+
+- Duration_ms: A dal hossza ezredmásodpercekben mérve.
+
+## Kutatási terv
+- Projektünk fő iránya, hogy azt szeretnénk megmagyarázni, hogy van-e összefüggés a zenei jellemzők és a ranglistán elfoglalt helyezés (rank) között. Azaz a top100-on belül előrébb végez-e egy dal (kisebb a rank változó értéke) attól függően, hogy a magyarázó változók más értéket vesznek fel. Ez az elsődleges célunk, ehhez próbálunk modell(eke)t alkotni.
+
+- Természetesen tisztában vagyunk vele, hogy egy ilyen hipotézishez rengeteg más jellegű adat és változó is szükséges, melyekkel ez az adatbázis nem rendelkezik.
+ = Egyrészt szükség lehetne top100-on kívüli adatokra, hogy viszonyítani tudjuk, hogy valami miért kerül be a legjobb 100-ba, valami pedig miért marad ki. Erre vonatkozóan viszont nem állnak rendelkezésre adatok. Egy alternatív megoldás, hogy elkülönítjük a top50 és a top51-100 adatokat, megvizsgálva, hogy van-e közöttük szignifikáns eltérés.
+ = Ahhoz, hogy legyen elég adatunk, a két év zenéit összesítjük egy közös adattáblába és abban vizsgáljuk meg az összefüggéseket. Ez felveti azt, hogy a két év esetleg különbözne, így megvizsgáljuk majd azt is, hogy ez valóban így van-e.
+ = Habár a rank nem egy klasszikus ökonmetrikus változó, a korreláció nagysága és iránya attól még ugyanúgy értelmezhető.
+
+- Így azt gondoljuk, hogy a projekt keretein belül leíró adatelemzést is el kell végeznünk, mely végül talán használhatóbb eredményre vezet, mint a modellépítés, melynél nagy a valószínűsége, hogy nem kapunk értelmes eredményt a kezdetben feltett kérdésre. (Ezt azonban csak azután tudhatjuk meg, hogy felállítottunk és lefuttattunk pár modellt. Jobban szeretnénk predikciós elemzést, de amennyiben a változóink nem szignifikánsak, a magyarázóerő nagyon kicsi, abban az esetben inkább leíró adatelemzéssel zárunk.)
+
+```{r}
+top_2017 <- fread("data/top2017.csv", encoding = "UTF-8")
+top_2018 <- fread("data/top2018.csv", encoding = "UTF-8")
+top_2017[, rank:=(1:100)/100]
+top_2018[, rank:=(1:100)/100]
+```
+
+# Adattisztítás
+
+- Alapvetően nem volt szükség egyes adatok kiszűrésére, mivel ez egy ellenőrzött és egyértelmű adatbázis. Hiányzó értékek sem voltak.
+- Egyes változókat kiszedtünk, mert szöveges adatok voltak vagy nem láttuk érdemesnek a szerepeltetésüket (hangnem - mode, hangnem alaphangja - key).
+
+```{r}
+top_2017[, c("id", "time_signature", "key", "mode"):=NULL]
+top_2018[, c("id", "time_signature", "key", "mode"):=NULL]
+```
+
+# Feltáró adatelemzés 1.
+
+- Elsőként azt szerettük volna szemléltetni, hogy a különböző évek egyes változói különböző eloszlást vesznek-e fel. Amennyiben nem, akkor a két év között nem történt nagy zenei ízlésváltozás, így összesíthetjük a két év adatait.
+
+```{r}
+acou1 <- ggplot(top_2017, aes(acousticness)) + geom_histogram() + labs(title = "2017")
+acou2 <- ggplot(top_2018, aes(acousticness)) + geom_histogram()+ labs(title = "2018")
+ggarrange(acou1, acou2)
+
+dance1 <-ggplot(top_2017, aes(danceability)) + geom_histogram() + labs(title = "2017")
+dance2 <-ggplot(top_2018, aes(danceability)) + geom_histogram()+ labs(title = "2018")
+ggarrange(dance1, dance2)
+
+ggarrange(ggplot(top_2017, aes(tempo)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(tempo)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(valence)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(valence)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(energy)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(energy)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(loudness)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(loudness)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(instrumentalness)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(instrumentalness)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(speechiness)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(speechiness)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(liveness)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(liveness)) + geom_histogram()+ labs(title = "2018"))
+
+ggarrange(ggplot(top_2017, aes(duration_ms)) + geom_histogram() + labs(title = "2017"),ggplot(top_2018, aes(duration_ms)) + geom_histogram()+ labs(title = "2018"))
+```
+
+- Egyedül talán a dalok hosszúsága (duration_ms) esetén más az eloszlás, 2018-ban sokkal inkább az átlag körül mozognak az értékek, kevésbé szóródnak. Úgy gondoljuk, hogy összesíthetjük a két táblát, nem történt változás a két év értékei között.
+
+```{r}
+top100_music_dt <- data.table(rbind(top_2017, top_2018))
+```
+
+- Néhány dal (14 darab) mindkét évben felkerült a toplistára. Ez tovább erősíti a meggyőződésünket, hogy a két év során nem történt ízlésváltozás. Ezeket az értékeket viszont kivesszük, mert így torzítja azoknak a daloknak a duplikált értékeivel (bár nem hinnénk, hogy ezt a torzítás jelentős). 186 adatpontunk maradt így.
+
+```{r}
+top100_unique <- unique(top100_music_dt, by = "name")
+```
+
+# Feltáró adatelemzés 2.
+
+- Az összesített adattáblából néhány ábrát szeretnénk csak megnézni, hogy megismerkedjünk az adatbázisunkkal (azokat a változókat választottuk, ami szerintünk intuitíve jól együttjárhat a rankkel).
+
+- Rank-kel való összefüggés néhány változónál
+```{r}
+ggplot(top100_unique, aes(tempo, rank))+ geom_point()+geom_smooth()+ theme_minimal()
+ggplot(top100_unique, aes(valence, rank))+ geom_point()+geom_smooth() + theme_minimal()
+ggplot(top100_unique, aes(danceability, rank))+ geom_point()+geom_smooth() + theme_minimal()
+ggplot(top100_unique, aes(liveness, rank))+ geom_point()+geom_smooth() + theme_minimal()
+```
+
+- Változók eloszlása
+```{r}
+ggplot(top100_unique, aes(danceability)) + geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(loudness))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(speechiness))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(valence))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(liveness))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(acousticness))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(tempo))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(instrumentalness))+ geom_histogram()+ theme_minimal()
+ggplot(top100_unique, aes(energy))+ geom_histogram()+ theme_minimal()
+```
+
+- Két dolgot vehetünk észre.
+ = Az első, hogy a rankkel a kiválasztott változóink semennyire sem járnak együtt (szinte vízszintes egyenes mindenhol)
+ = A második, hogy az egyes változók eloszlása legtöbb esetben kis szórású, rásimul az átlagra. Nincs változékonysága az értékeknek, homogén a top100 lista.
+
+- Ezután érdemes megnézni a summary-t és a korrelációs mátrixot is.
+
+```{r}
+summary(top100_unique)
+```
+```{r}
+cor(top100_unique[, c("artists", "name"):=NULL])
+```
+
+- Mint látható a korrelációs mátrixból, a sejtéseink beigazolódtak a rank igazán semmivel sem korrelál, valamint a változók értékei a summary alapján nem szóródnak (nagyon közel vannak az első és harmadik kvartilisek az átlaghoz).
+- Habár a korrelációk kicsik, meg szeretnénk nézni, hogy ennek ellenére szignifikánsan eltérnek-e a nullától ezek az értékek. Erre két módszert választottunk, lineáris és logit regressziót.
+
+# Modellezés
+
+## Lineáris regresszió
+
+```{r}
+lm1 <- lm(rank ~ ., data = top100_unique)
+```
+
+```{r}
+summary(lm1)
+residuals <- data.table(residuals = lm1$residuals, fitted = lm1$fitted.values)
+ggplot(residuals, aes(fitted, residuals)) + geom_point(alpha = .5) + labs(title = "Maradéktagok a lineáris regresszióban") + theme_minimal()
+```
+
+- A p (és t) értékekből látszik, hogy az összes magyarázó változó szerepeltetése esetén az együtthatók egyáltalán nem szignifikánsak, az R négyzet pedig mindösszesen 4%. A lineáris modell így nem igazolja a kezdeti hipotézist.
+- Megjegyzés: A maradéktagokat mutató ábra alapján viszont az elmondható, hogy azok eloszlása random, így nem maradt ki szisztematikus hatás.
+
+- Az lm1 modell két legkisebb p-értékű változójával (tempo, liveness) futtatunk egy második lineáris regressziót.
+- Megjegyzés: ezzel a két változóval korrelált leginkább a rank.
+```{r}
+lm2 <- lm(rank ~ tempo + liveness, data = top100_unique)
+summary(lm2)
+```
+
+- A tempo p-értéke csökkent, a liveness-é kicsit nőtt, de így sem lett egyik változó sem szignifikáns. Az R négyzet ráadásul csökkent is. A lineáris regressziós modell tehát nem ad eredményt.
+- Megjegyzés: Interakció hozzáadásának nem láttuk értelmét (nincs értelme ezen változók kombinálásának).
+
+- Eddigi konklúzió: Természetesen előfordulhat, hogy meglévő változókon kívül igazából teljesen más tényezők magyarázzák a toplistás helyezést (ízlés, előadó hírneve, divat, előadóval kapcsolatos hírek és történések stb.).
+
+## Logit regresszió
+
+- Az első modellnél az összes 0-1 közötti változót szerepeltettük.
+- A másodiknál egy hasonló témával foglalkozó cikk alapján választottuk az öt változót, melyet szerepeltetünk a logit regresszióban.
+```{r}
+logit_top_all <- glm(rank ~ . -tempo - duration_ms - loudness, data = top100_unique, family = "binomial")
+summary(logit_top_all)
+logit_top <- glm(rank ~ acousticness + danceability + loudness + speechiness + liveness, data = top100_unique, family = "binomial")
+summary(logit_top)
+
+coefplot(logit_top, xlim = c(-6,4))
+```
+
+- Mindkét logit regresszió is teljesen inszignifikáns modellt ad, a p-értékek még nagyobbak.
+- Cross-validationnek sincs értelme szerintünk (nem lehet trainelni az adatot, mert nincs értelmes modell, amit meg tudna tanulni).
+- Mivel semelyik modellezés nem adott használható eredményt, leíró elemzést is végzünk, hogy valamit mégiscsak tudjunk mondani az adatainkról.
+
+# Leíró elemzés
+
+## Általános jellemzői a top100-as daloknak.
+
+```{r}
+summary(top100_unique)
+```
+- Az adatok kezdeti összefoglalásából már láttuk, hogy a legtöbb változónak nincs nagy szórása, rásimulnak az átlagra. Így jellemezhetünk egy hipotetikus dalt abból a szempontból, hogy várhatóan milyen paraméter-értékek mellett kerülhet a top100-ba (persze az, hogy bekerül-e, rengeteg más tényezőtől is függ majd).
+ = Mindenképpen legyen táncolható (danceability érték magas, 0.71-es átlaggal)
+ = Viszonylag magas tempo (119 bpm) és energy (0.66) átlagértékek miatt legyen gyors ütemű
+ = Vélhetően nem élő közönség előtt van felvéve (liveness átlaga alacsony: 0.156)
+ = Legyen benne szöveg és zene vegyesen is, viszont semmiképpen nem akusztikus
+ = A hangulata mindegy, hogy milyen (valence eloszlása hasonlít egy normális eloszláshoz)
+ = A dal hossza legyen 3-4 perc hosszú (180 ezer és 240 ezer ezredmásodperc között)
+
+## Különbözik-e a top50 és a top51-100?
+
+- Ez egy apró ötlet, melyet szeretnénk kipróbálni, de nem minden változóval
+- Megnézzük a danceabilityt, melynek a hisztogramok alapján kicsit nagyobb a szórása és így hátha kapunk egy érdekes eredményt.
+
+```{r}
+top50 <- top100_unique[rank<= 0.50]
+top51_100 <- top100_unique[rank> 0.50]
+```
+
+```{r}
+top50_avg <- top50[, .(avg_dan = sum(danceability)/length(danceability))]
+top50_sd <- top50[, .(sd_dan = sqrt((sum(danceability-sum(danceability)/length(danceability))^2)/length(danceability)))]
+top50_final <- data.table(top50_avg, top50_sd, Category = "Top50")
+
+top51_avg <- top51_100[, .(avg_dan = sum(danceability)/length(danceability))]
+top51_sd <- top51_100[, .(sd_dan = sqrt((sum(danceability-sum(danceability)/length(danceability))^2)/length(danceability)))]
+top51_final <- data.table(top51_avg, top51_sd, Category = "Top51-100")
+
+top_dance <- rbind(top50_final, top51_final)
+```
+
+```{r}
+top_dance %>%
+    .[, CI_lower := avg_dan - (2 * sd_dan)] %>%
+    .[, CI_higher := avg_dan + (2 * sd_dan)] %>%
+    ggplot(.,aes(x = Category, y = avg_dan)) +
+    geom_col() +
+    geom_errorbar(aes(ymin = CI_lower, ymax = CI_higher), colour = "red")+ labs(title = "Danceability átlagok eltérése top50 és top51-100 között") + theme_minimal()
+   
+```
+
+- A szórások nagyon kicsik, így a konfidenciaintervallum tulajdonképpen megegyezik az átlaggal. Az átlagok közötti eltérés ez alapján szignifikáns, de a két átlag abszolút nagysága szinte azonos, így a top50 első és második fele között nincs nagy különbség a danceability érték tekintetében (pláne, hogy kb. 90-90 adatpont képezte a számolás alapját).
+
+# Konklúzió
+
+- A kedzeti hipotézisünk, hogy a megadott paraméterek valamennyire magyarázzák a top100-on belül elfoglalt helyet (rank változó), nem lett igazolva sem lineáris, sem logit regresszióval. Mivel ez volt az elemzés fő fókusza, igyekeztünk mindent megvizsgálni.
+- Ennek több magyarázata lehet, azt érezzük legfontosabbnak, hogy a top100 dalok rendkívül homogének a legtöbb paraméter szerint, és kis szóródású változókkal nehéz szignifikáns változójú regressziót modellezni.
+- A top100 mellett így hasznos lenne, hogy top100-on kívüli dalok adatai is lennének, melyekről azonban nincs lista. Egy top500 vagy top1500 lista azonban már vélhetően nagyobb varianciával rendelkezne minden változó esetében, így ott indokolt lehet a predikciós modellezés.
+- Egy előkelő top100-as helyezés sok más, nagyon nehezen mérhető változó függvénye. Egy előadó halála, visszavonulása, magánélete, hírneve, befutottsága, internetes trendek változása, híres előadó feldolgozása hatással lehet egy szám meghallgatásának értékére (streaming). Ezeket esetlegesen Instagram-követők számával, korábban kiadott albumok számával és sokféle egyéb dummyval lehetne modellezni. Ennek veszélye, hogy még bonyolultabb lenne a már amúgy is sok változót felvonultató modell.
+- A dalok közötti homogenitás előnye, hogy így kézenfekvő a leíró elemzés. Mi ezt is lefolytattuk és a paraméterek átlaga alapján jellemeztünk egy dalt, mely bekerülhet a top100-ba. Ezt jövőre, a 2019-es adatok publikálásával lehetne ellenőrizni.
